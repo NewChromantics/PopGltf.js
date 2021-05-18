@@ -118,9 +118,7 @@ class Gltf_t
 			}
 			Mesh.Attribs = {};
 			
-			const TriangleCount = Mesh.TriangleIndexes.length / 3;
-			let VertexCount;
-			
+			let VertexCount = null;			
 			for ( const [AttributeName,AttributeIndex] of Object.entries(PrimitivesDescription.attributes) ) 
 			{
 				const ArrayAndMeta = this.GetArrayAndMeta(AttributeIndex);
