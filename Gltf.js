@@ -40,6 +40,10 @@ class Gltf_t
 			if ( Buffer.Data )
 				continue;
 			Buffer.Data = await LoadBinaryFileAsync(Buffer.uri);
+			
+			//	hold data as a byte array
+			if ( Buffer.Data instanceof ArrayBuffer )
+				Buffer.Data = new Uint8Array(Buffer.Data);
 		}
 	}
 	
@@ -49,6 +53,8 @@ class Gltf_t
 		const BufferIndex = BufferView.buffer;
 		const Buffer = this.buffers[BufferIndex];
 		const BufferData = Buffer.Data.buffer;
+		if ( !BufferData )
+			throw `Buffer is missing data buffer`;
 		const Offset = BufferView.byteOffset || 0;
 		const ByteLength = BufferView.byteLength;
 		
