@@ -1,5 +1,6 @@
 //	stupid magic numbers
 const GL_UNSIGNED_SHORT = 5123;
+const GL_UNSIGNED_INT = 5125;
 const GL_FLOAT = 5126;
 
 function GetTypedArrayTypeFromAccessorType(Accessor)
@@ -7,6 +8,7 @@ function GetTypedArrayTypeFromAccessorType(Accessor)
 	switch(Accessor.componentType)
 	{
 		case GL_UNSIGNED_SHORT:	return Uint16Array;
+		case GL_UNSIGNED_INT:	return Uint32Array;
 		case GL_FLOAT:			return Float32Array;
 	}
 	
@@ -17,6 +19,8 @@ function GetTypedArrayTypeFromAccessorType(Accessor)
 		case 'VEC3':
 		case 'VEC4':
 			return Float32Array;
+			
+		//case 'SCALAR':
 	}
 	
 	throw `Cannot determine array type from Accessor ${JSON.stringify(Accessor)}`;
@@ -47,8 +51,10 @@ class Gltf_t
 		}
 	}
 	
-	GetArrayAndMeta(BufferViewIndex)
+	GetArrayAndMeta(AccessorIndex)
 	{
+		const Accessor = this.accessors[AccessorIndex];
+		const BufferViewIndex = Accessor.bufferView;
 		const BufferView = this.bufferViews[BufferViewIndex];
 		const BufferIndex = BufferView.buffer;
 		const Buffer = this.buffers[BufferIndex];
@@ -58,14 +64,6 @@ class Gltf_t
 		const Offset = BufferView.byteOffset || 0;
 		const ByteLength = BufferView.byteLength;
 		
-		function MatchAccessor(Accessor)
-		{
-			return Accessor.bufferView == BufferViewIndex;
-		}
-		const Accessor = this.accessors.find(MatchAccessor);
-		if ( !Accessor )
-			throw `Failed to find accessor for BufferViewIndex=${BufferViewIndex}`;
-	
 		//	get type from accessor
 		const ArrayType = GetTypedArrayTypeFromAccessorType(Accessor);
 		
