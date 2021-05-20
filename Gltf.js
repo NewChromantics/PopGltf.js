@@ -115,7 +115,7 @@ class Gltf_t
 			Mesh.Material = PrimitivesDescription.material;
 			Mesh.TriangleIndexes = null;
 			
-			if ( PrimitivesDescription.indices )
+			if ( PrimitivesDescription.indices !== undefined )
 			{
 				const Indexes = this.GetArrayAndMeta(PrimitivesDescription.indices);
 				Mesh.TriangleIndexes = Indexes.Array;
