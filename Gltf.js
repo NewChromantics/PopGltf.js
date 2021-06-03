@@ -163,22 +163,15 @@ class Gltf_t
 		return Result;
 	}
 	
-	PushGeometry(Geometry,GroupName,GroupIndex)
+	PushGeometry(Geometry,MeshGroupIndex)
 	{
-		//	a "mesh" is a group
-		//	we need to record mesh-index -> group
-		if ( !this.MeshGroups[GroupIndex] )
-		{
-			this.MeshGroups[GroupIndex] = {};
-			this.MeshGroups[GroupIndex].Name = GroupName;
-			this.MeshGroups[GroupIndex].GeometryNames = [];
-		}
-			
-		const MeshGroup = this.MeshGroups[GroupIndex];
+		const MeshGroup = this.MeshGroups[MeshGroupIndex];
+		if ( !MeshGroup )
+			throw `PushGeometry to MeshGroupIndex=${MeshGroupIndex} but MeshGroup=${MeshGroup}`; 
 			
 		//	todo; generate truly unique mesh name
 		const GeometryCount = MeshGroup.GeometryNames.length;
-		const GeometryName = `${GroupName}_${GeometryCount}`;
+		const GeometryName = `${MeshGroup.Name}_${GeometryCount}`;
 		if ( this.Geometrys[GeometryName] )
 			throw `Geometry with name ${GeometryName} already exists`;
 		this.Geometrys[GeometryName] = Geometry;
@@ -209,7 +202,7 @@ class Gltf_t
 				Attrib.Size = ArrayAndMeta.Meta.ElementSize;
 				Mesh.Attribs[AttributeName] = Attrib;
 				const AttribVertexCount = Attrib.Data.length / Attrib.Size;
-				console.log(`${AttributeName} vertex count ${AttribVertexCount} vs ${VertexCount}`);
+				//console.log(`${AttributeName} vertex count ${AttribVertexCount} vs ${VertexCount}`);
 				if ( !VertexCount )
 					VertexCount = AttribVertexCount;
 			}
@@ -218,13 +211,30 @@ class Gltf_t
 
 		//	meshes are collections of primitives (with their own materials)
 		//	so a mesh is a group of meshes
-		for ( let GroupIndex in this.meshes )
+		for ( let MeshGroupKey in this.meshes )
 		{
-			const GroupName = this.meshes[GroupIndex].name;
+			//	gr: I think we're expecting all these keys to be indexes
+			let GroupIndex = parseInt(MeshGroupKey);
+			if ( isNaN(GroupIndex) )
+				throw `Mesh group key ${MeshGroupKey} is not a number`;
+			
+			let GroupName = this.meshes[GroupIndex].name;
+			if ( !GroupName )	//	can be undefined
+				GroupName = `Group#${GroupIndex}`;
+				
+			if ( this.MeshGroups[GroupIndex] )
+				throw `Not expecting MeshGroup[${GroupIndex}] for ${GroupName} to exist`;
+			
+			//	a "mesh" is a group
+			//	we need to record mesh-index -> group for later (material etc)
+			this.MeshGroups[GroupIndex] = {};
+			this.MeshGroups[GroupIndex].Name = GroupName;
+			this.MeshGroups[GroupIndex].GeometryNames = [];
+
 			const Meshes = this.meshes[GroupIndex].primitives.map( PrimitiveToMesh.bind(this) );
 			for ( let Mesh of Meshes )
 			{
-				this.PushGeometry( Mesh, GroupName, GroupIndex );
+				this.PushGeometry( Mesh, GroupIndex );
 			}
 		}
 	}
