@@ -27,6 +27,68 @@ function GetTypedArrayTypeFromAccessorType(Accessor)
 }
 
 
+//	from PopEngine/PopApi.js
+export function StringToBytes(Str,AsArrayBuffer=false)
+{
+	//	https://stackoverflow.com/questions/6965107/converting-between-strings-and-arraybuffers
+	if ( TextEncoder !== undefined )
+	{
+		const Encoder = new TextEncoder("utf-8");
+		const Bytes = Encoder.encode(Str);
+		return Bytes;
+	}
+	
+	let Bytes = [];
+	for ( let i=0;	i<Str.length;	i++ )
+	{
+		const CharCode = Str.charCodeAt(i);
+		if ( CharCode >= 128 )
+			throw `Pop.StringToBytes(${Str.substr(i,10)}) has non-ascii char`;
+		Bytes.push(CharCode);
+	}
+	
+	if ( AsArrayBuffer )
+		Bytes = new Uint8Array(Bytes);
+	return Bytes;
+}
+	
+
+function Base64ToBytes(Base64)
+{
+	//	gr: is this a js built-in (for native), or web only?
+	//		in which case we need an alternative maybe
+	const DataString = atob(Base64);
+	//	convert from the char-data-string to u8 array
+	const Data = StringToBytes(DataString);
+	//const Data = Uint8Array.from(DataString, c => c.charCodeAt(0));
+	return Data;
+}
+
+//	return false if not a data URI
+//	else returns a "File" with .Contents (u8array) and .Mime
+//	gr: doesn't need to be async, but lets thread breath
+const DataUriPattern = '^data:(.+)/(.+);base64,';
+async function ParseDataUri(Uri)
+{
+	//	get a substring to test against to make the match much faster
+	const UriStart = Uri.substring(0,200);	//	probably wont get a mime 200 chars long
+	//console.log(`ParseDataUri(${UriStart})`);
+	const Match = UriStart.match(DataUriPattern);
+	if ( !Match )
+		return false;
+
+	//	grab everything after the datauri prefix	
+	const DataBase64 = Uri.slice( Match[0].length );
+	const Data = Base64ToBytes(DataBase64);
+	
+	const File = {};
+	File.Mime = `${Match[1]}/${Match[2]}`;
+	File.Contents = Data;
+	return File;
+}
+
+
+
 class Gltf_t
 {
 	constructor(Json)
@@ -37,13 +99,29 @@ class Gltf_t
 		this.MeshGroups = {};	//	[GroupIndex] = {.Name,.GeometryNames = [GeometryName,GeometryName,GeometryName] }
 	}
 	
-	async LoadBuffers(LoadBinaryFileAsync)
+	async LoadBuffers(LoadBinaryFileAsync,OnLoadingBuffer)
 	{
+		OnLoadingBuffer = OnLoadingBuffer||function(){};
+		
 		for ( let Buffer of this.buffers )
 		{
 			if ( Buffer.Data )
 				continue;
-			Buffer.Data = await LoadBinaryFileAsync(Buffer.uri);
+				
+			OnLoadingBuffer( Buffer.uri.slice(0,40) );
+
+			//	load embedded data without using external func
+			Buffer.Data = await ParseDataUri(Buffer.uri);
+			
+			//	is external
+			if ( !Buffer.Data )
+			{
+				Buffer.Data = await LoadBinaryFileAsync(Buffer.uri);
+			}
+			else
+			{
+				Buffer.Data = Buffer.Data.Contents;
+			}
 			
 			//	hold data as a byte array
 			if ( Buffer.Data instanceof ArrayBuffer )
@@ -152,7 +230,7 @@ class Gltf_t
 	}
 }
 
-export default async function Parse(Json,LoadBinaryFileAsync)
+export default async function Parse(Json,LoadBinaryFileAsync,OnLoadingBuffer)
 {
 	//	if user passes a string, objectify it
 	if ( typeof Json == typeof '' )
@@ -161,7 +239,7 @@ export default async function Parse(Json,LoadBinaryFileAsync)
 	let Gltf = new Gltf_t(Json);
 	
 	//	load external buffers
-	await Gltf.LoadBuffers(LoadBinaryFileAsync);
+	await Gltf.LoadBuffers(LoadBinaryFileAsync,OnLoadingBuffer);
 	
 	Gltf.ExtractMeshes();
 	
