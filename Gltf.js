@@ -26,6 +26,22 @@ function GetTypedArrayTypeFromAccessorType(Accessor)
 	throw `Cannot determine array type from Accessor ${JSON.stringify(Accessor)}`;
 }
 
+function GetElementCountFromAccessorType(Accessor)
+{
+	switch(Accessor.type)
+	{
+		case 'MAT4':	return 4*4;
+		case 'VEC2':	return 2;
+		case 'VEC3':	return 3;
+		case 'VEC4':	return 4;
+		
+		//	gr: is this always the case...
+		case 'SCALAR':	return 1;
+	}
+	
+	throw `Cannot determine element count from Accessor ${JSON.stringify(Accessor)}`;
+}
+
 
 //	from PopEngine/PopApi.js
 export function StringToBytes(Str,AsArrayBuffer=false)
@@ -142,20 +158,31 @@ class Gltf_t
 		const Offset = BufferView.byteOffset || 0;
 		const ByteLength = BufferView.byteLength;
 		
+		//	handle interleaved data
+		let BufferViewStride = BufferView.byteStride || 0;	//	if undefined, no gaps between 
+		
 		//	get type from accessor
 		const ArrayType = GetTypedArrayTypeFromAccessorType(Accessor);
 		
 		const Length = BufferView.byteLength / ArrayType.BYTES_PER_ELEMENT;
 		const Array = new ArrayType( BufferData, Offset, Length );
 		
+		//	this checks the array, but not this accessor
 		{
 			const Overflow = Array.length % Accessor.count;
 			if ( Overflow )
 				throw `Accessor vs buffer data mis-aligned; length=${Array.length} count=${Accessor.count}`;
 		}
+		const ElementSize = GetElementCountFromAccessorType(Accessor);
+		
+		//	stride = buffer stride - (elementsize * type.bytesize) 
 		
 		const Meta = {};
-		Meta.ElementSize = Array.length / Accessor.count;
+		Meta.ElementSize = ElementSize;
+		Meta.Stride = BufferViewStride;
+		
+		if ( Meta.ElementSize < 1 || Meta.ElementSize > 4 )
+			throw `Attrib element size(${Meta.ElementSize}) should be between 1 and 4`;
 		
 		const Result = {};
 		Result.Array = Array;
@@ -200,6 +227,7 @@ class Gltf_t
 				const Attrib = {};
 				Attrib.Data = ArrayAndMeta.Array;
 				Attrib.Size = ArrayAndMeta.Meta.ElementSize;
+				Attrib.Stride = ArrayAndMeta.Meta.Stride; 
 				Mesh.Attribs[AttributeName] = Attrib;
 				const AttribVertexCount = Attrib.Data.length / Attrib.Size;
 				//console.log(`${AttributeName} vertex count ${AttribVertexCount} vs ${VertexCount}`);
