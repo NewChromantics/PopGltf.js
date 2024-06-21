@@ -1,4 +1,5 @@
 //	stupid magic numbers
+const GL_UNSIGNED_BYTE = 5121;
 const GL_UNSIGNED_SHORT = 5123;
 const GL_UNSIGNED_INT = 5125;
 const GL_FLOAT = 5126;
@@ -7,6 +8,7 @@ function GetTypedArrayTypeFromAccessorType(Accessor)
 {
 	switch(Accessor.componentType)
 	{
+		case GL_UNSIGNED_BYTE:	return Uint8Array;
 		case GL_UNSIGNED_SHORT:	return Uint16Array;
 		case GL_UNSIGNED_INT:	return Uint32Array;
 		case GL_FLOAT:			return Float32Array;
@@ -18,9 +20,8 @@ function GetTypedArrayTypeFromAccessorType(Accessor)
 		case 'VEC2':
 		case 'VEC3':
 		case 'VEC4':
+		case 'SCALAR':
 			return Float32Array;
-			
-		//case 'SCALAR':
 	}
 	
 	throw `Cannot determine array type from Accessor ${JSON.stringify(Accessor)}`;
@@ -163,15 +164,27 @@ class Gltf_t
 		
 		//	get type from accessor
 		const ArrayType = GetTypedArrayTypeFromAccessorType(Accessor);
+		const ElementCount = GetElementCountFromAccessorType(Accessor);
 		
-		const Length = BufferView.byteLength / ArrayType.BYTES_PER_ELEMENT;
+		const BufferLength = BufferView.byteLength / ArrayType.BYTES_PER_ELEMENT;
+		const AccessorLength = Accessor.count;
+		const Length = AccessorLength * ElementCount;
+		if ( Length != BufferLength )
+			console.log(`AccessorLength=${AccessorLength} BufferLength=${BufferLength}`);
 		const Array = new ArrayType( BufferData, Offset, Length );
 		
 		//	this checks the array, but not this accessor
+		//	https://github.com/KhronosGroup/glTF-Tutorials/blob/main/gltfTutorial/gltfTutorial_005_BuffersBufferViewsAccessors.md
+		//	The count property of an accessor indicates how many data elements it consists of.
 		{
+			//	gr: you can have an accessor using fewer bytes than the buffer view
+			//		eg. Accessor.count==6, (buffer) array.length==8
+			//		which makes the overflow check wrong
+			/*
 			const Overflow = Array.length % Accessor.count;
 			if ( Overflow )
 				throw `Accessor vs buffer data mis-aligned; length=${Array.length} count=${Accessor.count}`;
+			*/
 		}
 		const ElementSize = GetElementCountFromAccessorType(Accessor);
 		
