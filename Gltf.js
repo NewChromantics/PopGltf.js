@@ -104,12 +104,140 @@ async function ParseDataUri(Uri)
 	return File;
 }
 
+//	GLB is a chunk binary file containing json + bin
+//	todo: would be nice to be able to stream this blob
+//	https://docs.fileformat.com/3d/glb/
+class Glb_t
+{
+	static BinaryGltfMagic = 0x46546C67;	//	'glTF'
+	static ChunkType_Json = 0x4E4F534A;		//	'JSON'
+	static ChunkType_Bin = 0x004E4942;		//	'/0BIN'
 
+	#Chunks = {};	//	[ChunkType] = Bin Data
+	#Gltf = null;	//	parsed gltf Json
+
+	
+	constructor(GlbData)
+	{
+		//	verify data
+		if ( ! (GlbData instanceof Uint8Array) )
+			throw `Glb expecting uint8array data`;
+		
+		this.ArrayBuffer = GlbData.buffer;
+		this.ReadPosition = 0;
+		this.FileSize = null;		//	read from header
+		this.Version = null;		//	read from header
+		
+		this.#ReadHeader();
+		this.#ReadChunks();
+	}
+	
+	get Gltf()	{	return this.#Gltf;	}
+	
+	#BytesRemaining()
+	{
+		return this.ArrayBuffer.byteLength - this.ReadPosition;
+	}
+	
+	#ReadView(Size,TypedArrayType=Uint8Array)
+	{
+		const Remaining = this.#BytesRemaining();
+		if ( Remaining < Size )
+			throw `Reading out of bounds ${this.ReadPosition}+${Size} > ${this.ArrayBuffer.byteLength} (${Remaining} remaining)`;
+		
+		const Length = Size / TypedArrayType.BYTES_PER_ELEMENT;
+		const View = new TypedArrayType( this.ArrayBuffer, this.ReadPosition, Length );
+		this.ReadPosition += Size;
+		return View;
+	}
+	
+	#Read32()
+	{
+		const View32 = this.#ReadView(4,Uint32Array);
+		return View32[0];
+	}
+	
+	#ReadHeader()
+	{
+		const Magic = this.#Read32();
+		if ( Magic != Glb_t.BinaryGltfMagic )
+			throw `Magic number of GLB is incorrect (${Magic})`;
+		
+		this.Version = this.#Read32();
+		
+		//	file size should be header + all chunks
+		this.FileSize = this.#Read32();
+	}
+	
+	#GetChunkTypeName(Type)
+	{
+		switch ( Type )
+		{
+			case Glb_t.ChunkType_Json:	return 'Json';
+			case Glb_t.ChunkType_Bin:	return 'Bin';
+			default:
+				return `${Type}`;
+		}
+	}
+	
+	#ReadNextChunk()
+	{
+		//	read length
+		const ChunkSize = this.#Read32();
+		const Type = this.#Read32();
+		const TypeName = this.#GetChunkTypeName(Type);
+		const Data = this.#ReadView( ChunkSize, Uint8Array );
+
+		if ( this.#Chunks.hasOwnProperty(Type) )
+			throw `Glb has duplicate chunk type ${TypeName}`;
+		
+		this.#Chunks[Type] = Data;
+	}
+	
+	#ReadChunks()
+	{
+		//	safety
+		for ( let i=0;	i<1000;	i++ )
+		{
+			if ( this.#BytesRemaining() <= 0 )
+				break;
+
+			this.#ReadNextChunk();
+		}
+
+		//	parse gltf json
+		const JsonChunk = this.#Chunks[Glb_t.ChunkType_Json];
+		const Json = new TextDecoder().decode(JsonChunk);
+		this.#Gltf = new Gltf_t( Json );
+	}
+	
+	//	expecting url to be blank in our case
+	async #LoadBinaryFileAsync(Url)
+	{
+		const BinChunk = this.#Chunks[Glb_t.ChunkType_Bin];
+		if ( !BinChunk )
+			throw `Glb missing binary chunk`;
+		return BinChunk;
+	}
+	
+	async LoadBuffers(ExternalLoadBinaryFileAsync,OnLoadingBuffer)
+	{
+		return await this.#Gltf.LoadBuffers( this.#LoadBinaryFileAsync.bind(this), OnLoadingBuffer );
+	}
+	
+	ExtractMeshes()
+	{
+		return this.#Gltf.ExtractMeshes();
+	}
+}
 
 class Gltf_t
 {
 	constructor(Json)
 	{
+		if ( typeof Json == typeof '' )
+			Json = JSON.parse( Json );
+
 		Object.assign(this,Json);
 		
 		this.Geometrys = {};		//	[MeshName] = Mesh
@@ -124,16 +252,18 @@ class Gltf_t
 		{
 			if ( Buffer.Data )
 				continue;
-				
-			OnLoadingBuffer( Buffer.uri.slice(0,40) );
+			
+			const Uri = Buffer.uri || '';
+			//	slice incase it's a datauri and a bit long
+			OnLoadingBuffer( Uri.slice(0,40) );
 
 			//	load embedded data without using external func
-			Buffer.Data = await ParseDataUri(Buffer.uri);
+			Buffer.Data = await ParseDataUri(Uri);
 			
 			//	is external
 			if ( !Buffer.Data )
 			{
-				Buffer.Data = await LoadBinaryFileAsync(Buffer.uri);
+				Buffer.Data = await LoadBinaryFileAsync(Uri);
 			}
 			else
 			{
@@ -153,10 +283,13 @@ class Gltf_t
 		const BufferView = this.bufferViews[BufferViewIndex];
 		const BufferIndex = BufferView.buffer;
 		const Buffer = this.buffers[BufferIndex];
-		const BufferData = Buffer.Data.buffer;
-		if ( !BufferData )
-			throw `Buffer is missing data buffer`;
-		const Offset = BufferView.byteOffset || 0;
+		
+		//	buffer.data.buffer here is the underlying storage, but this may not start at 0
+		//	so always use Buffer.Data as our reference
+		//const BufferData = Buffer.Data.buffer;
+		//if ( !BufferData )
+		//	throw `Buffer is missing data buffer`;
+		const Offset = (BufferView.byteOffset || 0) + Buffer.Data.byteOffset;
 		const ByteLength = BufferView.byteLength;
 		
 		//	handle interleaved data
@@ -171,20 +304,16 @@ class Gltf_t
 		const Length = AccessorLength * ElementCount;
 		if ( Length != BufferLength )
 			console.log(`AccessorLength=${AccessorLength} BufferLength=${BufferLength}`);
-		const Array = new ArrayType( BufferData, Offset, Length );
+
+		const Array = new ArrayType( Buffer.Data.buffer, Offset, Length );
 		
 		//	this checks the array, but not this accessor
 		//	https://github.com/KhronosGroup/glTF-Tutorials/blob/main/gltfTutorial/gltfTutorial_005_BuffersBufferViewsAccessors.md
 		//	The count property of an accessor indicates how many data elements it consists of.
 		{
-			//	gr: you can have an accessor using fewer bytes than the buffer view
-			//		eg. Accessor.count==6, (buffer) array.length==8
-			//		which makes the overflow check wrong
-			/*
 			const Overflow = Array.length % Accessor.count;
 			if ( Overflow )
 				throw `Accessor vs buffer data mis-aligned; length=${Array.length} count=${Accessor.count}`;
-			*/
 		}
 		const ElementSize = GetElementCountFromAccessorType(Accessor);
 		
@@ -281,20 +410,39 @@ class Gltf_t
 	}
 }
 
-export default async function Parse(Json,LoadBinaryFileAsync,OnLoadingBuffer)
+async function GetGltfExtractor(GltfData,LoadBinaryFileAsync,OnLoadingBuffer)
 {
-	//	if user passes a string, objectify it
-	if ( typeof Json == typeof '' )
-		Json = JSON.parse(Json);
+	try
+	{
+		const Glb = new Glb_t( GltfData );
+		return Glb;
+	}
+	catch(e)
+	{
+		console.log(`Is not GLB; ${e}`);
+	}
+
+	//	convert input to string then json->obj
+	const GltfJson = new TextDecoder().decode(GltfData);
 	
-	let Gltf = new Gltf_t(Json);
+	const Gltf = new Gltf_t(GltfJson);
+	
+	return Gltf;
+}
+
+export default async function Parse(GltfData,LoadBinaryFileAsync,OnLoadingBuffer)
+{
+	const Gltf = await GetGltfExtractor( GltfData, LoadBinaryFileAsync, OnLoadingBuffer );
 	
 	//	load external buffers
 	await Gltf.LoadBuffers(LoadBinaryFileAsync,OnLoadingBuffer);
 	
 	Gltf.ExtractMeshes();
 	
-	return Gltf;
+	if ( Gltf instanceof Glb_t )
+		return Gltf.Gltf;
+	else
+		return Gltf;
 }
 
 
