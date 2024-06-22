@@ -292,9 +292,6 @@ class Gltf_t
 		const Offset = (BufferView.byteOffset || 0) + Accessor.byteOffset + Buffer.Data.byteOffset;
 		const ByteLength = BufferView.byteLength;
 		
-		//	handle interleaved data
-		let BufferViewStride = BufferView.byteStride || 0;	//	if undefined, no gaps between 
-		
 		//	get type from accessor
 		const ArrayType = GetTypedArrayTypeFromAccessorType(Accessor);
 		const ElementCount = GetElementCountFromAccessorType(Accessor);
@@ -304,6 +301,14 @@ class Gltf_t
 		const Length = AccessorLength * ElementCount;
 		if ( Length != BufferLength )
 			console.log(`AccessorLength=${AccessorLength} BufferLength=${BufferLength}`);
+
+		//	handle interleaved data
+		let BufferViewStride = BufferView.byteStride || 0;	//	if undefined, no gaps between
+		//	gr: if this stride is the same size as elements * size
+		//		then it's not interleaved
+		if ( BufferViewStride == ElementCount * ArrayType.BYTES_PER_ELEMENT )
+			BufferViewStride = 0;
+		
 
 		const Array = new ArrayType( Buffer.Data.buffer, Offset, Length );
 		
