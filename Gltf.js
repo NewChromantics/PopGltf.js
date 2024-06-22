@@ -289,7 +289,7 @@ class Gltf_t
 		//const BufferData = Buffer.Data.buffer;
 		//if ( !BufferData )
 		//	throw `Buffer is missing data buffer`;
-		const Offset = (BufferView.byteOffset || 0) + Buffer.Data.byteOffset;
+		const Offset = (BufferView.byteOffset || 0) + Accessor.byteOffset + Buffer.Data.byteOffset;
 		const ByteLength = BufferView.byteLength;
 		
 		//	handle interleaved data
