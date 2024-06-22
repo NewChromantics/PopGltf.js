@@ -217,7 +217,8 @@ class Glb_t
 		const BinChunk = this.#Chunks[Glb_t.ChunkType_Bin];
 		if ( !BinChunk )
 			throw `Glb missing binary chunk`;
-		return BinChunk;
+		//	temp to fix bugs: copy the data with no byte offset
+		return BinChunk.slice();
 	}
 	
 	async LoadBuffers(ExternalLoadBinaryFileAsync,OnLoadingBuffer)
