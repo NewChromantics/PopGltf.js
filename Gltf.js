@@ -310,12 +310,16 @@ class Gltf_t
 		const BufferIndex = BufferView.buffer;
 		const Buffer = this.buffers[BufferIndex];
 		
+		Accessor.byteOffset = Accessor.byteOffset||0;
+		BufferView.byteOffset = BufferView.byteOffset||0;
+		BufferView.byteStride = BufferView.byteStride||0;	//	if undefined, no gaps between
+		
 		//	buffer.data.buffer here is the underlying storage, but this may not start at 0
 		//	so always use Buffer.Data as our reference
 		//const BufferData = Buffer.Data.buffer;
 		//if ( !BufferData )
 		//	throw `Buffer is missing data buffer`;
-		const Offset = (BufferView.byteOffset || 0) + Accessor.byteOffset + Buffer.Data.byteOffset;
+		const Offset = BufferView.byteOffset + Accessor.byteOffset + Buffer.Data.byteOffset;
 		const ByteLength = BufferView.byteLength;
 
 		//	get type from accessor
@@ -323,7 +327,7 @@ class Gltf_t
 		const ElementCount = GetElementCountFromAccessorType(Accessor);
 		
 		//	handle interleaved data
-		let BufferViewStride = BufferView.byteStride || 0;	//	if undefined, no gaps between
+		let BufferViewStride = BufferView.byteStride;
 		//	gr: if this stride is the same size as elements * size
 		//		then it's not interleaved
 		if ( BufferViewStride == ElementCount * ArrayType.BYTES_PER_ELEMENT )
@@ -336,7 +340,7 @@ class Gltf_t
 			//	gr: i think maybe the view in gltf is clipped to this element, rather than the stride-aligned buffer size
 			//		to get to the total number of elements (all data/stride) we need to pad the view
 			//	note: how this doesn't include the accessor offset!
-			const CompleteDataOffset = (BufferView.byteOffset || 0) + Buffer.Data.byteOffset;
+			const CompleteDataOffset = BufferView.byteOffset + Buffer.Data.byteOffset;
 			const CompleteDataSize = BufferView.byteLength;
 			const StrideCompleteData = new Uint8Array( Buffer.Data.buffer, CompleteDataOffset, CompleteDataSize );
 			const UnrolledData = this.#UnrollInterleavedData( StrideCompleteData, BufferViewStride, Accessor.byteOffset, ArrayType, ElementCount );
