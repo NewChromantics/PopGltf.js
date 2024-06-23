@@ -277,6 +277,31 @@ class Gltf_t
 		}
 	}
 	
+	#UnrollInterleavedData(Data,StructBytes,StructByteOffset,OutputArrayType,OutputElementCount)
+	{
+		if ( ! (Data instanceof Uint8Array) )
+			throw `Unrolling data expects uint8 data`;
+		
+		const InstanceOverflow = Data.byteLength % StructBytes;
+		if ( InstanceOverflow != 0 )
+			throw `Unrolling mis-aligned data`;
+		
+		const InstanceCount = Data.byteLength / StructBytes;
+		
+		//	walk over data
+		const Output = new OutputArrayType(InstanceCount * OutputElementCount);
+		for ( let i=0;	i<InstanceCount;	i++ )
+		{
+			let ByteOffset = i * StructBytes;
+			ByteOffset += Data.byteOffset;
+			ByteOffset += StructByteOffset;
+			const ViewLength = OutputElementCount;
+			const CastView = new OutputArrayType( Data.buffer, ByteOffset, ViewLength );
+			Output.set( CastView, i * OutputElementCount );
+		}
+		return Output;
+	}
+	
 	GetArrayAndMeta(AccessorIndex)
 	{
 		const Accessor = this.accessors[AccessorIndex];
@@ -292,17 +317,11 @@ class Gltf_t
 		//	throw `Buffer is missing data buffer`;
 		const Offset = (BufferView.byteOffset || 0) + Accessor.byteOffset + Buffer.Data.byteOffset;
 		const ByteLength = BufferView.byteLength;
-		
+
 		//	get type from accessor
 		const ArrayType = GetTypedArrayTypeFromAccessorType(Accessor);
 		const ElementCount = GetElementCountFromAccessorType(Accessor);
 		
-		const BufferLength = BufferView.byteLength / ArrayType.BYTES_PER_ELEMENT;
-		const AccessorLength = Accessor.count;
-		const Length = AccessorLength * ElementCount;
-		if ( Length != BufferLength )
-			console.log(`AccessorLength=${AccessorLength} BufferLength=${BufferLength}`);
-
 		//	handle interleaved data
 		let BufferViewStride = BufferView.byteStride || 0;	//	if undefined, no gaps between
 		//	gr: if this stride is the same size as elements * size
@@ -310,26 +329,64 @@ class Gltf_t
 		if ( BufferViewStride == ElementCount * ArrayType.BYTES_PER_ELEMENT )
 			BufferViewStride = 0;
 		
+		
+		//	hack for now until the renderer handles interleaved, non-float aligned (ie, mix of float and other types) attribute data
+		if ( BufferViewStride != 0 )
+		{
+			//	gr: i think maybe the view in gltf is clipped to this element, rather than the stride-aligned buffer size
+			//		to get to the total number of elements (all data/stride) we need to pad the view
+			//	note: how this doesn't include the accessor offset!
+			const CompleteDataOffset = (BufferView.byteOffset || 0) + Buffer.Data.byteOffset;
+			const CompleteDataSize = BufferView.byteLength;
+			const StrideCompleteData = new Uint8Array( Buffer.Data.buffer, CompleteDataOffset, CompleteDataSize );
+			const UnrolledData = this.#UnrollInterleavedData( StrideCompleteData, BufferViewStride, Accessor.byteOffset, ArrayType, ElementCount );
+			
+			const Meta = {};
+			Meta.ElementSize = ElementCount;
+			Meta.Stride = 0;
+			
+			if ( Meta.ElementSize < 1 || Meta.ElementSize > 4 )
+				throw `Attrib element size(${Meta.ElementSize}) should be between 1 and 4`;
+			
+			const Result = {};
+			Result.Array = UnrolledData;
+			Result.Meta = Meta;
+			return Result;
+		}
+		
+		
+		
+		//	gr: acessor length is correct... IF the data isnt interleaved
+		const BufferLength = BufferView.byteLength / ArrayType.BYTES_PER_ELEMENT;
+		const AccessorLength = Accessor.count * ElementCount;
 
-		const Array = new ArrayType( Buffer.Data.buffer, Offset, Length );
+		//const Length = BufferLength;
+		//	these only align if data is striped
+		if ( AccessorLength != BufferLength )
+			if ( BufferViewStride == 0 )
+			console.log(`AccessorLength=${AccessorLength} BufferLength=${BufferLength}`);
+
+		//	gr: this mapping to a type is wrong if data is interleaved
+		const Array = new ArrayType( Buffer.Data.buffer, Offset, AccessorLength );
 		
 		//	this checks the array, but not this accessor
 		//	https://github.com/KhronosGroup/glTF-Tutorials/blob/main/gltfTutorial/gltfTutorial_005_BuffersBufferViewsAccessors.md
 		//	The count property of an accessor indicates how many data elements it consists of.
 		{
+			/*
 			const Overflow = Array.length % Accessor.count;
 			if ( Overflow )
 				throw `Accessor vs buffer data mis-aligned; length=${Array.length} count=${Accessor.count}`;
+			 */
 		}
-		const ElementSize = GetElementCountFromAccessorType(Accessor);
 		
 		//	stride = buffer stride - (elementsize * type.bytesize) 
 		
 		const Meta = {};
-		Meta.ElementSize = ElementSize;
-		Meta.Stride = BufferViewStride;
+		Meta.ElementSize = ElementCount;
+		Meta.Stride = BufferViewStride;	//	bytes
 		
-		if ( Meta.ElementSize < 1 || Meta.ElementSize > 4 )
+		if ( Meta.ElementCount < 1 || Meta.ElementCount > 4 )
 			throw `Attrib element size(${Meta.ElementSize}) should be between 1 and 4`;
 		
 		const Result = {};
