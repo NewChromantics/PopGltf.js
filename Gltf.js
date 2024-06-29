@@ -1,3 +1,69 @@
+//	generic skeleton class
+
+export class SkeletonJoint_t
+{
+	constructor(Name,JointIndex)
+	{
+		this.Name = Name;
+		this.JointIndex = JointIndex;
+		this.Children = [];	//	child joints
+		this.Translation = [0,0,0];
+		this.Rotation = [0,0,0,1];
+	}
+	
+	EnumJoints(OnFoundJoint)
+	{
+		OnFoundJoint(this);
+		
+		for ( let Child of this.Children )
+		{
+			Child.EnumJoints( OnFoundJoint );
+		}
+	}
+	
+	AddChild(Joint)
+	{
+		if ( !(Joint instanceof SkeletonJoint_t) )
+			throw `Joint expected to be a SkeletonJoint_t`;
+		
+		//	todo: stop recursion
+		this.Children.push(Joint);
+	}
+}
+
+export class Skeleton_t
+{
+	//	always have a root
+	#JointTreeRoot = null;
+	
+	constructor(Name)
+	{
+		const Index = undefined;
+		this.#JointTreeRoot = new SkeletonJoint_t('Name',Index);
+	}
+	
+	get JointTree()
+	{
+		return this.#JointTreeRoot;
+	}
+	
+	//	enum all joints
+	get Joints()
+	{
+		const Joints = [];
+		this.JointTree.EnumJoints( j => Joints.push(j) );
+		return Joints;
+	}
+};
+
+
+
+
+
+
+
+
+
 //	stupid magic numbers
 const GL_UNSIGNED_BYTE = 5121;
 const GL_UNSIGNED_SHORT = 5123;
@@ -475,6 +541,21 @@ class Gltf_t
 			}
 		}
 	}
+	
+	GetSkeleton(SkinIndex)
+	{
+		const Skin = this.skins[SkinIndex];
+		if ( !Skin )
+			throw `No skin #${SkinIndex}`;
+		
+		const SceneNodeIndexes = Skin.joints;
+		const inverseBindMatrices = Skin.inverseBindMatrices;
+		
+		const Skeleton = new Skeleton_t( Skin.name );
+		
+		return Skeleton;
+	}
+		
 }
 
 async function GetGltfExtractor(GltfData,LoadBinaryFileAsync,OnLoadingBuffer)
