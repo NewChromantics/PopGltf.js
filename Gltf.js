@@ -1,11 +1,14 @@
+//	gr: erk external dependencies!
+import {SplitArrayIntoChunks} from '../PopApi.js'
+import {MatrixInverse4x4,TransformPosition} from '../Math.js'
+
 //	generic skeleton class
 
 export class SkeletonJoint_t
 {
-	constructor(Name,JointIndex)
+	constructor(Name)
 	{
 		this.Name = Name;
-		this.JointIndex = JointIndex;
 		this.Children = [];	//	child joints
 		this.Translation = [0,0,0];
 		this.Rotation = [0,0,0,1];
@@ -33,26 +36,48 @@ export class SkeletonJoint_t
 
 export class Skeleton_t
 {
-	//	always have a root
-	#JointTreeRoot = null;
+	#Joints = [];	//	[SkeletonJoint_t] in skinning order
 	
-	constructor(Name)
+	constructor(Name,JointNodeIndexes,GetNodeMeta)
 	{
-		const Index = undefined;
-		this.#JointTreeRoot = new SkeletonJoint_t('Name',Index);
+		//	a root node is implied at "the origin"
+		//	https://github.com/KhronosGroup/glTF-Tutorials/blob/main/gltfTutorial/gltfTutorial_020_Skins.md
+		//	origin of... the scene? the skinned node? 0,0,0?
+		//const RootJoint = new SkeletonJoint_t('Root');
+		//this.#Joints.push( RootJoint );
+		
+		//	root == JointNodeIndexes[0]
+		//	v1 just get a list of joints
+		function GetSkeletonJoint(NodeIndex)
+		{
+			const NodeMeta = GetNodeMeta(NodeIndex);
+			const Joint = new SkeletonJoint_t(NodeMeta.name);
+			
+			const LocalTranslation = NodeMeta.translation.slice();
+			const LocalRotation = NodeMeta.rotation.slice();
+			const WorldTranslation = TransformPosition( [0,0,0], NodeMeta.JointToWorldTransform );
+			Joint.Translation = WorldTranslation;
+			Joint.Rotation = LocalRotation;
+
+			Joint.JointIndex = NodeMeta.JointIndex;
+			return Joint;
+		}
+		this.#Joints.push( ...JointNodeIndexes.map( GetSkeletonJoint ) );
 	}
 	
 	get JointTree()
 	{
-		return this.#JointTreeRoot;
+		throw `todo: enum tree`;
+		//return this.#JointTreeRoot;
 	}
 	
 	//	enum all joints
 	get Joints()
 	{
-		const Joints = [];
-		this.JointTree.EnumJoints( j => Joints.push(j) );
-		return Joints;
+		//const Joints = [];
+		//this.JointTree.EnumJoints( j => Joints.push(j) );
+		//return Joints;
+		return this.#Joints;
 	}
 };
 
@@ -549,9 +574,33 @@ class Gltf_t
 			throw `No skin #${SkinIndex}`;
 		
 		const SceneNodeIndexes = Skin.joints;
-		const inverseBindMatrices = Skin.inverseBindMatrices;
 		
-		const Skeleton = new Skeleton_t( Skin.name );
+		//	this is an array of matrixes, one for each joint that converts world/geometry/skin-space to joint-space
+		//	("inverse of joint to vertex")
+		const InverseBindMatricesAccessorIndex = Skin.inverseBindMatrices;
+		const InverseBindMatricesAccessor = this.accessors[InverseBindMatricesAccessorIndex];
+		const WorldToJointMatrixDatas = this.GetArrayAndMeta(InverseBindMatricesAccessorIndex);
+		
+		const WorldToJointMatrixes = SplitArrayIntoChunks( WorldToJointMatrixDatas.Array, WorldToJointMatrixDatas.Meta.ElementSize );
+		const JointToWorldMatrixes = WorldToJointMatrixes.map( MatrixInverse4x4 );
+		
+
+		
+		function GetJointNodeMeta(NodeIndex)
+		{
+			if ( NodeIndex < 0 || NodeIndex >= this.nodes.length )
+				throw `Node index ${NodeIndex}/${this.nodes.length} out of bounds`;
+		
+			const NodeMeta = Object.assign( {}, this.nodes[NodeIndex] );
+			const JointIndex = SceneNodeIndexes.indexOf(NodeIndex);
+			NodeMeta.WorldToJointTransform = WorldToJointMatrixes[JointIndex];
+			NodeMeta.JointToWorldTransform = JointToWorldMatrixes[JointIndex];
+			NodeMeta.NodeIndex = NodeIndex;
+			//	index in this skin
+			NodeMeta.JointIndex = JointIndex;
+			return NodeMeta;
+		}
+		const Skeleton = new Skeleton_t( Skin.name, SceneNodeIndexes, GetJointNodeMeta.bind(this) );
 		
 		return Skeleton;
 	}
