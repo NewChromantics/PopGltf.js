@@ -602,6 +602,9 @@ class Gltf_t
 		}
 		const Skeleton = new Skeleton_t( Skin.name, SceneNodeIndexes, GetJointNodeMeta.bind(this) );
 		
+		Skeleton.WorldToJointMatrixes = WorldToJointMatrixes;
+		Skeleton.JointToWorldMatrixes = JointToWorldMatrixes;
+		
 		return Skeleton;
 	}
 		
