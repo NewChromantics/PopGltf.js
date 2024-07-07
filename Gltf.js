@@ -1,6 +1,6 @@
 //	gr: erk external dependencies!
 import {SplitArrayIntoChunks,JoinTypedArrays} from '../PopApi.js'
-import {CreateTranslationMatrix,CreateTranslationQuaternionMatrix,CreateIdentityMatrix,MatrixInverse4x4,TransformPosition} from '../Math.js'
+import {MatrixMultiply4x4,CreateTranslationMatrix,CreateTranslationQuaternionMatrix,CreateIdentityMatrix,MatrixInverse4x4,TransformPosition} from '../Math.js'
 
 
 
@@ -23,6 +23,63 @@ function Lerp(PrevValue,NextValue,LerpTime)
 	
 	const OutValue = PrevValue + ( (NextValue-PrevValue) * LerpTime );
 	return OutValue;
+}
+
+
+function Slerp(PrevValue,NextValue,LerpTime)
+{
+	if ( PrevValue.length != 4 )
+		throw `Slerp expecting 4 elment array`;
+
+	let out = [];
+	let a = PrevValue;
+	let b = NextValue;
+	let t = LerpTime;
+	
+	//	https://github.com/toji/gl-matrix/blob/master/src/quat.js#L296
+	let ax = a[0],
+		ay = a[1],
+		az = a[2],
+		aw = a[3];
+	let bx = b[0],
+	  by = b[1],
+	  bz = b[2],
+	  bw = b[3];
+
+	let omega, cosom, sinom, scale0, scale1;
+
+	// calc cosine
+	cosom = ax * bx + ay * by + az * bz + aw * bw;
+	// adjust signs (if necessary)
+	if (cosom < 0.0) {
+	  cosom = -cosom;
+	  bx = -bx;
+	  by = -by;
+	  bz = -bz;
+	  bw = -bw;
+	}
+	const EPSILON = 0.00001;
+	// calculate coefficients
+	if (1.0 - cosom > EPSILON) {
+	  // standard case (slerp)
+	  omega = Math.acos(cosom);
+	  sinom = Math.sin(omega);
+	  scale0 = Math.sin((1.0 - t) * omega) / sinom;
+	  scale1 = Math.sin(t * omega) / sinom;
+	} else {
+	  // "from" and "to" quaternions are very close
+	  //  ... so we can do a linear interpolation
+	  scale0 = 1.0 - t;
+	  scale1 = t;
+	}
+	// calculate final values
+	out[0] = scale0 * ax + scale1 * bx;
+	out[1] = scale0 * ay + scale1 * by;
+	out[2] = scale0 * az + scale1 * bz;
+	out[3] = scale0 * aw + scale1 * bw;
+
+	return out;
+
 }
 
 function Range(Min,Max,Value)
@@ -110,6 +167,7 @@ export class AnimationTrack
 		switch ( this.InterpolationMethod )
 		{
 			case InterpolationMethod.Linear:	return Lerp(PrevValue,NextValue,LerpTime);
+			case InterpolationMethod.Slerp:		return Slerp(PrevValue,NextValue,LerpTime);
 			default:	throw `Unhandled interpolation method ${this.InterpolationMethod}`;
 		}
 	}
@@ -121,7 +179,14 @@ export class AnimationTrack
 		return this.ValueData.Array.slice( FirstIndex, FirstIndex+ElementCount );
 	}
 
-	get InterpolationMethod()	{	return this.SamplerMeta.interpolation;	}
+	get InterpolationMethod()	
+	{
+		if ( this.Property == 'rotation' )
+		{
+			//return InterpolationMethod.Slerp;
+		}
+		return this.SamplerMeta.interpolation;
+	}
 }
 
 //	generic animation class
@@ -209,34 +274,21 @@ export class SkeletonJoint
 	constructor(Name)
 	{
 		this.Name = Name;
-		this.Children = [];	//	child joints
-		this.Translation = [0,0,0];
-		this.Rotation = [0,0,0,1];
+		this.WorldPosition = [0,0,0];	//	only use for quick debug!
+		this.LocalPosition = [0,0,0];
+		this.LocalRotation = [0,0,0,1];
+		this.Parents = [];	//
 	}
+
+	get ParentCount()	{	return this.Parents.length;	}
 	
-	EnumJoints(OnFoundJoint)
-	{
-		OnFoundJoint(this);
-		
-		for ( let Child of this.Children )
-		{
-			Child.EnumJoints( OnFoundJoint );
-		}
-	}
-	
-	AddChild(Joint)
-	{
-		if ( !(Joint instanceof SkeletonJoint) )
-			throw `Joint expected to be a SkeletonJoint`;
-		
-		//	todo: stop recursion
-		this.Children.push(Joint);
-	}
+	get LocalTransform()	{	return CreateTranslationQuaternionMatrix( this.LocalPosition, this.LocalRotation );	}
 }
 
 export class Skeleton_t
 {
 	#Joints = [];	//	[SkeletonJoint] in skinning order
+	#TreeDepthOrder = [];	//	index to #Joints in depth order (so fewer parents first)
 	
 	constructor(Name,JointNodeIndexes,GetNodeMeta)
 	{
@@ -255,20 +307,64 @@ export class Skeleton_t
 			
 			const LocalTranslation = NodeMeta.translation.slice();
 			const LocalRotation = NodeMeta.rotation.slice();
-			const WorldTranslation = TransformPosition( [0,0,0], NodeMeta.JointToWorldTransform );
-			Joint.Translation = WorldTranslation;
-			Joint.Rotation = LocalRotation;
+			Joint.JointToWorldTransform = NodeMeta.JointToWorldTransform;
+			Joint.LocalPosition = LocalTranslation;
+			Joint.LocalRotation = LocalRotation;
+
+			const WorldTranslation = TransformPosition( [0,0,0], Joint.JointToWorldTransform );
+			Joint.WorldPosition = WorldTranslation;
 
 			Joint.JointIndex = NodeMeta.JointIndex;
+			
+			function GetParentJointIndex()
+			{
+				for ( let ThatNodeIndex of JointNodeIndexes )
+				{
+					const ThatNodeMeta = GetNodeMeta(ThatNodeIndex);
+					if ( ThatNodeMeta.children.includes(NodeIndex) )
+						return ThatNodeMeta.JointIndex;
+				}
+				return null;
+			}
+			function GetChildJointIndex(ChildNodeIndex)
+			{
+				const ChildNodeMeta = GetNodeMeta(ChildNodeIndex);
+				return ChildNodeMeta.JointIndex;
+			}
+			Joint.Children = NodeMeta.children.map(GetChildJointIndex);
+			Joint.Parent = GetParentJointIndex();
 			return Joint;
 		}
 		this.#Joints.push( ...JointNodeIndexes.map( GetSkeletonJoint ) );
-	}
-	
-	get JointTree()
-	{
-		throw `todo: enum tree`;
-		//return this.#JointTreeRoot;
+		
+		function SetParents(Joint)
+		{
+			Joint.Parents = [];
+			let p = Joint.Parent;
+			for ( let i=0;	i<1000;	i++ )
+			{
+				if ( p === null )
+					break;
+				Joint.Parents.push(p);
+				const Parent = this.#Joints[p];
+				p = Parent.Parent;
+			}
+		}
+		
+		this.#Joints.forEach( SetParents.bind(this) );
+		
+		function CompareParentCount(JointIndexA,JointIndexB)
+		{
+			const JointA = this.#Joints[JointIndexA];
+			const JointB = this.#Joints[JointIndexB];
+			if ( JointA.ParentCount < JointB.ParentCount )	
+				return -1;
+			if ( JointA.ParentCount > JointB.ParentCount )	
+				return 1;
+			return 0;
+		}
+		
+		this.#TreeDepthOrder = Object.keys(this.#Joints).map(Number).sort( CompareParentCount.bind(this) );
 	}
 	
 	//	enum all joints
@@ -280,28 +376,126 @@ export class Skeleton_t
 		return this.#Joints;
 	}
 	
-	//	need a transform for each joint
+	//	get transform in joint space
 	//	gr: should this returned key'd data?
-	#GetFlatJointTransforms(AnimationFrame)
+	#GetJointTransforms(AnimationFrame)
 	{
 		function GetJointTranform(Joint)
 		{
-			const Translation = AnimationFrame.GetValue(Joint.Name,'translation') || [0,0,0];
-			const Rotation = AnimationFrame.GetValue(Joint.Name,'rotation') || [0,0,0,1];
+			//	these REPLACE existing values, but only if present
+			//	so we use the original ones as backup
+			let Translation = AnimationFrame.GetValue(Joint.Name,'translation') || Joint.LocalPosition;
+			let Rotation = AnimationFrame.GetValue(Joint.Name,'rotation') || Joint.LocalRotation;
+			
+			//	gr: need this translation but there's a giant Y offset somewhere when applied... not taking it off something?
+			//Translation = [0,0,0];
+			if ( Joint.Name != 'mixamorig:Hips' )
+			{
+				//Translation = [0,0,0];
+				//Rotation = [0,0,0,1];
+			}
+			else
+			{
+				//Rotation = [0,0,0,1];
+				//Translation = [0.3,0.3,0.3];
+			}
+			
 			const Transform = CreateTranslationQuaternionMatrix( Translation, Rotation );
 			return Transform;
 		}
 		
-		const Transforms = this.#Joints.map( GetJointTranform )
-		return Transforms;
+		const JointFrameTransforms = this.#Joints.map( GetJointTranform );
+
+		return JointFrameTransforms;
 	}
 	
 	//	get all the joint transforms, but transformed in heirachy
-	GetJointTransforms(AnimationFrame)
+	//	gr: this isnt what we want to apply to joint matrix though?
+	//	https://github.com/KhronosGroup/glTF-Sample-Viewer/blob/d32ca25dc273c0b0982e29efcea01b45d0c85105/src/skin.js#L32-L36
+	GetJointWorldTransforms(AnimationFrame)
 	{
-		const JointTransforms = this.#GetFlatJointTransforms(AnimationFrame);
+		const JointTransforms = this.#GetJointTransforms(AnimationFrame);//.map( x => CreateIdentityMatrix() );
 		
-		return JointTransforms;
+		//	now turn into tree-waterfalled transforms
+		
+		let WorldTransforms = JointTransforms.map( x => CreateIdentityMatrix() );
+		let AppliedParentTransforms = {};
+		
+		function GetJointWorldTransform(JointIndex)
+		{
+			const Joint = this.#Joints[JointIndex];
+			
+			//	this worldtransform is from joint->world (inverse bind) so *0,0,0 should be in the same place as a heirachy transform
+			//return Joint.WorldTransform;
+			
+			//	local joint transform(animation) in joint space
+			//		-> joint transform from parent
+			//			-> parent's world transform
+			let JointWorldTransform = Joint.LocalTransform;
+			//	gr: REPLACE the transform in the original bind pose, don't add to it
+			//JointWorldTransform = MatrixMultiply4x4( JointWorldTransform, JointTransforms[JointIndex] );
+			JointWorldTransform = JointTransforms[JointIndex];
+			
+			//let ParentIndex = Joint.Parent;
+			//if ( ParentIndex !== null )
+			for ( let ParentIndex of Joint.Parents )
+			{
+				if ( !AppliedParentTransforms[ParentIndex] )
+					throw `Using transform that isn't yet applied in tree`;
+				
+				//	due to depth order, this one should have already been calculated
+				//const ParentTransform = WorldTransforms[ParentIndex];
+				
+				const ParentJoint = this.#Joints[ParentIndex];
+				let ParentTransform = ParentJoint.LocalTransform;
+				//ParentTransform = MatrixMultiply4x4( ParentTransform, JointTransforms[ParentIndex] );
+				ParentTransform = JointTransforms[ParentIndex];
+
+				JointWorldTransform = MatrixMultiply4x4( ParentTransform, JointWorldTransform );
+			}
+			
+			return JointWorldTransform;
+		}
+		
+		for ( let i=0;	i<this.#TreeDepthOrder.length;	i++ )
+		{
+			const JointIndex = this.#TreeDepthOrder[i];
+			const WorldTransform = GetJointWorldTransform.call(this,JointIndex);
+			AppliedParentTransforms[JointIndex] = true;
+			WorldTransforms[i] = WorldTransform;
+		}
+		
+		/*
+		
+		//	now for each joint we need to accumulate the transforms from its parents
+		//		we have the tree order, (first is root, then first branch, etc) so we can
+		//		just calculate them one by one and look up the already-transformed parent
+		//	todo; Here is where we could mix multiple anims
+		let AppliedParentTransforms = {};
+		let WorldTransforms = JointTransforms.slice();
+		
+		for ( let i=0;	i<this.#TreeDepthOrder.length;	i++ )
+		{
+			const j = this.#TreeDepthOrder[i];
+			const Joint = this.#Joints[j];
+			
+			let Transform = WorldTransforms[j];
+			//for ( let ParentIndex of Joint.Parents )
+			let ParentIndex = Joint.Parent;
+			if ( ParentIndex !== null )
+			{
+				if ( !AppliedParentTransforms[ParentIndex] )
+					throw `Using transform that isn't yet applied in tree`;
+				//	due to depth order, this one should have already been calculated
+				const ParentTransform = WorldTransforms[ParentIndex];
+				Transform = MatrixMultiply4x4( ParentTransform, Transform );
+			}
+			WorldTransforms[j] = Transform;
+			AppliedParentTransforms[j] = true;
+		}
+		*/
+		
+		return WorldTransforms;
 	}
 };
 
@@ -822,6 +1016,7 @@ class Gltf_t
 			NodeMeta.NodeIndex = NodeIndex;
 			//	index in this skin
 			NodeMeta.JointIndex = JointIndex;
+			NodeMeta.children = NodeMeta.children || [];
 			return NodeMeta;
 		}
 		const Skeleton = new Skeleton_t( Skin.name, SceneNodeIndexes, GetJointNodeMeta.bind(this) );
