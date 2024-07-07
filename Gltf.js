@@ -1,10 +1,210 @@
 //	gr: erk external dependencies!
-import {SplitArrayIntoChunks} from '../PopApi.js'
-import {MatrixInverse4x4,TransformPosition} from '../Math.js'
+import {SplitArrayIntoChunks,JoinTypedArrays} from '../PopApi.js'
+import {CreateTranslationMatrix,CreateTranslationQuaternionMatrix,CreateIdentityMatrix,MatrixInverse4x4,TransformPosition} from '../Math.js'
+
+
+
+function Lerp(PrevValue,NextValue,LerpTime)
+{
+	//	need to do each element if array (position, colour etc)
+	if ( Array.isArray(PrevValue) || ArrayBuffer.isView(PrevValue) )
+	{
+		function LerpElement(PrevElement,Index)
+		{
+			const NextElement = NextValue[Index];
+			return Lerp( PrevElement, NextElement, LerpTime );
+		}
+		const Out = PrevValue.map(LerpElement);
+		return Out;
+	}
+	
+	if ( typeof PrevValue != typeof 123.456 )
+		throw `todo: lerp non-number; ${typeof PrevValue}`;
+	
+	const OutValue = PrevValue + ( (NextValue-PrevValue) * LerpTime );
+	return OutValue;
+}
+
+function Range(Min,Max,Value)
+{
+	return (Value-Min)/(Max-Min);
+}
+
+
+
+//	gr: currently a virtual frame but later this may be flat data
+export class AnimationFrame
+{
+	constructor(TimeSecs,ParentClip)
+	{
+		this.TimeSecs = TimeSecs;
+		this.ParentClip = ParentClip;
+	}
+	
+	GetValue(ObjectName,Property)
+	{
+		//	find track in clip
+		const Track = this.ParentClip.GetTrack( ObjectName, Property );
+		if ( !Track )
+		{
+			return null;
+		}
+		
+		//	find prev&next keyframes
+		const InterpolatedValue = Track.GetValue(this.TimeSecs);
+		return InterpolatedValue;
+	}
+}
+
+const InterpolationMethod =
+{
+	Linear:			'LINEAR',
+	Slerp:			'SphericalLerp',	//	not in GLTF, but we catch it as rotations must be slerp'd
+	Step:			'STEP',
+	BezierCubic:	'CUBICSPLINE'	//	value & 2 tangents (+next value)
+};
+
+export class AnimationTrack
+{
+	get KeyframeTimes()		{	return this.TimeData.Array;	}
+	get FirstKeyframeTime()	{	return this.KeyframeTimes[0];	}
+	get LastKeyframeTime()	{	return this.KeyframeTimes[this.KeyframeTimes.length-1];	}
+
+	
+	GetValue(TimeSecs)
+	{
+		const KeyframeTimes = this.KeyframeTimes;
+
+		//	workout prev & next indexes to lerp between
+		let PrevIndex = 0;
+		for ( let k=0;	k<KeyframeTimes.length;	k++ )
+		{
+			const KeyframeTime = KeyframeTimes[k];
+			if ( KeyframeTime > TimeSecs )
+			{
+				break;
+			}
+			PrevIndex = k;
+		}
+		const NextIndex = Math.min(PrevIndex + 1, KeyframeTimes.length-1);
+		const PrevValue = this.#GetKeyframeValue(PrevIndex);
+		const NextValue = this.#GetKeyframeValue(NextIndex);
+		const PrevTime = KeyframeTimes[PrevIndex];
+		const NextTime = KeyframeTimes[NextIndex];
+		const LerpTime = Range( PrevTime, NextTime, TimeSecs );
+
+		if ( PrevIndex == NextIndex )
+			return PrevValue;
+
+		const Value = this.#Interpolate( PrevValue, NextValue, LerpTime );
+		return Value;
+	}
+	
+	#Interpolate(PrevValue,NextValue,LerpTime)
+	{
+		if ( LerpTime <= 0.0 )
+			return PrevValue;
+		if ( LerpTime >= 1.0 )
+			return NextValue;
+		
+		switch ( this.InterpolationMethod )
+		{
+			case InterpolationMethod.Linear:	return Lerp(PrevValue,NextValue,LerpTime);
+			default:	throw `Unhandled interpolation method ${this.InterpolationMethod}`;
+		}
+	}
+	
+	#GetKeyframeValue(KeyframeIndex)
+	{
+		const ElementCount = this.ValueData.Meta.ElementSize;
+		const FirstIndex = KeyframeIndex * ElementCount;
+		return this.ValueData.Array.slice( FirstIndex, FirstIndex+ElementCount );
+	}
+
+	get InterpolationMethod()	{	return this.SamplerMeta.interpolation;	}
+}
+
+//	generic animation class
+export class AnimationClip
+{
+	static GetTrackKey(ObjectName,Property)
+	{
+		return `${ObjectName}/${Property}`;
+	}
+	
+	#Tracks = {};	//	AnimationTrack
+	
+	constructor(GltfAnimation,GetNodeMeta,GetArrayAndMeta)
+	{
+		//	channel = track/spline/curve
+		//	channel node = node = joint
+		console.log(`Animation clip`,GltfAnimation);
+		
+		function GetSamplerMeta(SamplerIndex)
+		{
+			return GltfAnimation.samplers[SamplerIndex];
+		}
+		
+		//	for our purposes, save each channel/track
+		function ChannelToTrack(Channel)
+		{
+			//	sampler meta defines input accessor(time) and output accessor(data)
+			//	and how to interpolate it
+			const SamplerMeta = GetSamplerMeta(Channel.sampler);
+			const Node = GetNodeMeta(Channel.target.node);
+
+			const Track = new AnimationTrack();
+			Track.Property = Channel.target.path;
+			Track.ObjectName = Node.name;
+			Track.SamplerMeta = SamplerMeta;
+			Track.TimeData = GetArrayAndMeta( Track.SamplerMeta.input );
+			Track.ValueData = GetArrayAndMeta( Track.SamplerMeta.output );
+			return Track;
+		}
+		const Tracks = GltfAnimation.channels.map(ChannelToTrack);
+		Tracks.forEach( this.#AddTrack.bind(this) );
+	}
+	
+	get LastKeyframeTime()
+	{
+		const Tracks = Object.values( this.#Tracks );
+		if ( Tracks.length == 0 )
+			return NaN;
+		
+		let LargestKeyframeTime = Tracks[0].LastKeyframeTime;
+		Tracks.forEach( t => LargestKeyframeTime = Math.max( LargestKeyframeTime, t.LastKeyframeTime ) );
+		return LargestKeyframeTime;
+	}
+	
+	//	extract an animation frame[interface] for this time
+	GetFrame(TimeSecs)
+	{
+		return new AnimationFrame(TimeSecs,this);
+	}
+	
+	#AddTrack(Track)
+	{
+		const Key = AnimationClip.GetTrackKey( Track.ObjectName, Track.Property );
+
+		if ( this.#Tracks.hasOwnProperty(Key) )
+			throw `Duplicate track; ${Key}`;
+		
+		this.#Tracks[Key] = Track;
+	}
+	
+	GetTrack(ObjectName,Property)
+	{
+		const Key = AnimationClip.GetTrackKey( ObjectName, Property );
+		return this.#Tracks[Key];
+	}
+
+}
+
+
 
 //	generic skeleton class
 
-export class SkeletonJoint_t
+export class SkeletonJoint
 {
 	constructor(Name)
 	{
@@ -26,8 +226,8 @@ export class SkeletonJoint_t
 	
 	AddChild(Joint)
 	{
-		if ( !(Joint instanceof SkeletonJoint_t) )
-			throw `Joint expected to be a SkeletonJoint_t`;
+		if ( !(Joint instanceof SkeletonJoint) )
+			throw `Joint expected to be a SkeletonJoint`;
 		
 		//	todo: stop recursion
 		this.Children.push(Joint);
@@ -36,14 +236,14 @@ export class SkeletonJoint_t
 
 export class Skeleton_t
 {
-	#Joints = [];	//	[SkeletonJoint_t] in skinning order
+	#Joints = [];	//	[SkeletonJoint] in skinning order
 	
 	constructor(Name,JointNodeIndexes,GetNodeMeta)
 	{
 		//	a root node is implied at "the origin"
 		//	https://github.com/KhronosGroup/glTF-Tutorials/blob/main/gltfTutorial/gltfTutorial_020_Skins.md
 		//	origin of... the scene? the skinned node? 0,0,0?
-		//const RootJoint = new SkeletonJoint_t('Root');
+		//const RootJoint = new SkeletonJoint('Root');
 		//this.#Joints.push( RootJoint );
 		
 		//	root == JointNodeIndexes[0]
@@ -51,7 +251,7 @@ export class Skeleton_t
 		function GetSkeletonJoint(NodeIndex)
 		{
 			const NodeMeta = GetNodeMeta(NodeIndex);
-			const Joint = new SkeletonJoint_t(NodeMeta.name);
+			const Joint = new SkeletonJoint(NodeMeta.name);
 			
 			const LocalTranslation = NodeMeta.translation.slice();
 			const LocalRotation = NodeMeta.rotation.slice();
@@ -78,6 +278,30 @@ export class Skeleton_t
 		//this.JointTree.EnumJoints( j => Joints.push(j) );
 		//return Joints;
 		return this.#Joints;
+	}
+	
+	//	need a transform for each joint
+	//	gr: should this returned key'd data?
+	#GetFlatJointTransforms(AnimationFrame)
+	{
+		function GetJointTranform(Joint)
+		{
+			const Translation = AnimationFrame.GetValue(Joint.Name,'translation') || [0,0,0];
+			const Rotation = AnimationFrame.GetValue(Joint.Name,'rotation') || [0,0,0,1];
+			const Transform = CreateTranslationQuaternionMatrix( Translation, Rotation );
+			return Transform;
+		}
+		
+		const Transforms = this.#Joints.map( GetJointTranform )
+		return Transforms;
+	}
+	
+	//	get all the joint transforms, but transformed in heirachy
+	GetJointTransforms(AnimationFrame)
+	{
+		const JointTransforms = this.#GetFlatJointTransforms(AnimationFrame);
+		
+		return JointTransforms;
 	}
 };
 
@@ -604,10 +828,41 @@ class Gltf_t
 		
 		Skeleton.WorldToJointMatrixes = WorldToJointMatrixes;
 		Skeleton.JointToWorldMatrixes = JointToWorldMatrixes;
+		//	gr: we want these flattened and padded for the renderer
 		
+		const MaxJoints = 70;
+		const WorldToJointMatrixesFlat = WorldToJointMatrixDatas.Array;
+		const JointToWorldMatrixesFlat = new Float32Array( JointToWorldMatrixes.flat() );
+		Skeleton.WorldToJointMatrixes = new Float32Array(MaxJoints*16);
+		Skeleton.WorldToJointMatrixes.set( WorldToJointMatrixesFlat );
+		Skeleton.JointToWorldMatrixes = new Float32Array(MaxJoints*16);
+		Skeleton.JointToWorldMatrixes.set(JointToWorldMatrixesFlat);
+
 		return Skeleton;
 	}
+	
+	GetAnimationNames()
+	{
+		const Animations = this.animations || {};
+		return Animations.map( a => a.name );
+	}
+	
+	GetAnimation(AnimationName)
+	{
+		const Animations = (this.animations || {}).filter( a => a.name == AnimationName );
+		if ( !Animations )
+			throw `No such animation "${AnimationName}"`;
+		if ( Animations.length > 1 )
+			throw `Multiple(${Animations.length}) animations named "${AnimationName}"`;
+		const Animation = Animations[0];
 		
+		function GetNodeMeta(NodeIndex)
+		{
+			return this.nodes[NodeIndex];
+		}
+		
+		return new AnimationClip( Animation, GetNodeMeta.bind(this), this.GetArrayAndMeta.bind(this) );
+	}
 }
 
 async function GetGltfExtractor(GltfData,LoadBinaryFileAsync,OnLoadingBuffer)
