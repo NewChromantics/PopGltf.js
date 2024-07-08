@@ -462,7 +462,7 @@ export class Skeleton_t
 			const JointIndex = this.#TreeDepthOrder[i];
 			const WorldTransform = GetJointWorldTransform.call(this,JointIndex);
 			AppliedParentTransforms[JointIndex] = true;
-			WorldTransforms[i] = WorldTransform;
+			WorldTransforms[JointIndex] = WorldTransform;
 		}
 		
 		/*
