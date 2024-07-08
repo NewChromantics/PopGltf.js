@@ -384,8 +384,8 @@ export class Skeleton_t
 		{
 			//	these REPLACE existing values, but only if present
 			//	so we use the original ones as backup
-			let Translation = AnimationFrame.GetValue(Joint.Name,'translation');
-			let Rotation = AnimationFrame.GetValue(Joint.Name,'rotation');
+			let Translation = AnimationFrame?.GetValue(Joint.Name,'translation');
+			let Rotation = AnimationFrame?.GetValue(Joint.Name,'rotation');
 			
 			//	test moving just the root
 			if ( Joint.Name != 'mixamorig:Hips' )
