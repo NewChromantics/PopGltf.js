@@ -384,22 +384,20 @@ export class Skeleton_t
 		{
 			//	these REPLACE existing values, but only if present
 			//	so we use the original ones as backup
-			let Translation = AnimationFrame.GetValue(Joint.Name,'translation') || Joint.LocalPosition;
-			let Rotation = AnimationFrame.GetValue(Joint.Name,'rotation') || Joint.LocalRotation;
+			let Translation = AnimationFrame.GetValue(Joint.Name,'translation');
+			let Rotation = AnimationFrame.GetValue(Joint.Name,'rotation');
 			
-			//	gr: need this translation but there's a giant Y offset somewhere when applied... not taking it off something?
-			//Translation = [0,0,0];
+			//	test moving just the root
 			if ( Joint.Name != 'mixamorig:Hips' )
 			{
-				//Translation = [0,0,0];
-				//Rotation = [0,0,0,1];
-			}
-			else
-			{
-				//Rotation = [0,0,0,1];
-				//Translation = [0.3,0.3,0.3];
+				//Translation = null;
+				//Rotation = null;
 			}
 			
+			//	inherit if not animated
+			Translation = Translation || Joint.LocalPosition;
+			Rotation = Rotation || Joint.LocalRotation;
+
 			const Transform = CreateTranslationQuaternionMatrix( Translation, Rotation );
 			return Transform;
 		}
@@ -432,8 +430,6 @@ export class Skeleton_t
 			//		-> joint transform from parent
 			//			-> parent's world transform
 			let JointWorldTransform = Joint.LocalTransform;
-			//	gr: REPLACE the transform in the original bind pose, don't add to it
-			//JointWorldTransform = MatrixMultiply4x4( JointWorldTransform, JointTransforms[JointIndex] );
 			JointWorldTransform = JointTransforms[JointIndex];
 			
 			//let ParentIndex = Joint.Parent;
@@ -448,7 +444,6 @@ export class Skeleton_t
 				
 				const ParentJoint = this.#Joints[ParentIndex];
 				let ParentTransform = ParentJoint.LocalTransform;
-				//ParentTransform = MatrixMultiply4x4( ParentTransform, JointTransforms[ParentIndex] );
 				ParentTransform = JointTransforms[ParentIndex];
 
 				JointWorldTransform = MatrixMultiply4x4( ParentTransform, JointWorldTransform );
