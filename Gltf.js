@@ -183,7 +183,7 @@ export class AnimationTrack
 	{
 		if ( this.Property == 'rotation' )
 		{
-			//return InterpolationMethod.Slerp;
+			return InterpolationMethod.Slerp;
 		}
 		return this.SamplerMeta.interpolation;
 	}
