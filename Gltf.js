@@ -1033,14 +1033,14 @@ class Gltf_t
 	
 	GetAnimationNames()
 	{
-		const Animations = this.animations || {};
+		const Animations = this.animations || [];
 		return Animations.map( a => a.name );
 	}
 	
 	GetAnimation(AnimationName)
 	{
-		const Animations = (this.animations || {}).filter( a => a.name == AnimationName );
-		if ( !Animations )
+		const Animations = (this.animations || []).filter( a => a.name == AnimationName );
+		if ( Animations.length == 0 )
 			throw `No such animation "${AnimationName}"`;
 		if ( Animations.length > 1 )
 			throw `Multiple(${Animations.length}) animations named "${AnimationName}"`;
