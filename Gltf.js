@@ -194,6 +194,9 @@ export class AnimationClip
 {
 	static GetTrackKey(ObjectName,Property)
 	{
+		if ( ObjectName.startsWith('mixamorig:') )
+			ObjectName = ObjectName.slice('mixamorig:'.length);
+
 		return `${ObjectName}/${Property}`;
 	}
 	
