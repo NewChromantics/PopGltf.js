@@ -4,6 +4,147 @@ import {MatrixMultiply4x4,CreateTranslationMatrix,CreateTranslationQuaternionMat
 
 
 
+function RemapJointToMixamoJoint(JointName)
+{
+	if ( JointName.startsWith('mixamorig:') )
+		JointName = JointName.slice('mixamorig:'.length);
+	
+	const RemapMap =
+	{
+		
+	//RootNode:	"Armature",
+	//Base_Female:	"Spine1",
+	//Skeleton:	"Spine1",
+	//Hips:	"Hips",
+	//Spine:	"Spine",
+	//Chest:	"Spine1",
+	//UpperChest:	"Spine2",
+	//Neck:	"Neck",
+	//Head:	"Head",
+	//HeadTop_End
+	//Right_Eye:	"RightEye",
+	//Left_Eye:	"LeftEye",
+	//Jaw:	"Spine1",
+	//Neck_Twist_A:	"Spine1",
+	//Left_Shoulder:	"LeftShoulder",
+	//Left_UpperArm:	"LeftArm",
+	//Left_LowerArm:	"LeftForeArm",
+	//Left_Hand:	"LeftHand",
+		
+	//Right_Shoulder:	"RightShoulder",
+	//Right_UpperArm:	"RightArm",
+	//Right_LowerArm:	"RightForeArm",
+	//Right_Hand:	"RightHand",
+	
+	//Left_UpperLeg:	"LeftUpLeg",
+	Left_LowerLeg:	"LeftLeg",
+	//Left_Foot:	"LeftFoot",
+	//Left_Toes:	"LeftToeBase",
+	//Left_ToesEnd:	"LeftToe_End",
+	//Right_UpperLeg:	"RightUpLeg",
+	Right_LowerLeg:	"RightLeg",
+	//Right_Foot:	"RightFoot",
+	//Right_Toes:	"RightToeBase",
+		//Right_ToesEnd:	"RightToe_End",
+
+/*
+ LeftHandThumb1
+ LeftHandThumb2
+ LeftHandThumb3
+ LeftHandThumb4
+ LeftHandIndex1
+ LeftHandIndex2
+ LeftHandIndex3
+ LeftHandIndex4
+ LeftHandMiddle1
+ LeftHandMiddle2
+ LeftHandMiddle3
+ LeftHandMiddle4
+ LeftHandRing1
+ LeftHandRing2
+ LeftHandRing3
+ LeftHandRing4
+ LeftHandPinky1
+ LeftHandPinky2
+ LeftHandPinky3
+ LeftHandPinky4
+	Left_PinkyProximal:	"Spine1",
+	Left_PinkyIntermediate:	"Spine1",
+	Left_PinkyDistal:	"Spine1",
+	Left_PinkyDistalEnd:	"Spine1",
+	Left_RingProximal:	"Spine1",
+	Left_RingIntermediate:	"Spine1",
+	Left_RingDistal:	"Spine1",
+	Left_RingDistalEnd:	"Spine1",
+	Left_MiddleProximal:	"Spine1",
+	Left_MiddleIntermediate:	"Spine1",
+	Left_MiddleDistal:	"Spine1",
+	Left_MiddleDistalEnd:	"Spine1",
+	Left_IndexProximal:	"Spine1",
+	Left_IndexIntermediate:	"Spine1",
+	Left_IndexDistal:	"Spine1",
+	Left_IndexDistalEnd:	"Spine1",
+	Left_ThumbProximal:	"Spine1",
+	Left_ThumbIntermediate:	"Spine1",
+	Left_ThumbDistal:	"Spine1",
+	Left_ThumbDistalEnd:	"Spine1",
+
+ 
+ RightHandThumb1
+ RightHandThumb2
+ RightHandThumb3
+ RightHandThumb4
+ RightHandIndex1
+ RightHandIndex2
+ RightHandIndex3
+ RightHandIndex4
+ RightHandMiddle1
+ RightHandMiddle2
+ RightHandMiddle3
+ RightHandMiddle4
+ RightHandRing1
+ RightHandRing2
+ RightHandRing3
+ RightHandRing4
+ RightHandPinky1
+ RightHandPinky2
+ RightHandPinky3
+ RightHandPinky4
+
+	Right_PinkyProximal:	"Spine1",
+	Right_PinkyIntermediate:	"Spine1",
+	Right_PinkyDistal:	"Spine1",
+	Right_PinkyDistalEnd:	"Spine1",
+	Right_RingProximal:	"Spine1",
+	Right_RingIntermediate:	"Spine1",
+	Right_RingDistal:	"Spine1",
+	Right_RingDistalEnd:	"Spine1",
+	Right_MiddleProximal:	"Spine1",
+	Right_MiddleIntermediate:	"Spine1",
+	Right_MiddleDistal:	"Spine1",
+	Right_MiddleDistalEnd:	"Spine1",
+	Right_IndexProximal:	"Spine1",
+	Right_IndexIntermediate:	"Spine1",
+	Right_IndexDistal:	"Spine1",
+	Right_IndexDistalEnd:	"Spine1",
+	Right_ThumbProximal:	"Spine1",
+	Right_ThumbIntermediate:	"Spine1",
+	Right_ThumbDistal:	"Spine1",
+	Right_ThumbDistalEnd:	"Spine1",
+ */
+		 
+};
+	const Remapped = RemapMap[JointName];
+	if ( Remapped )
+		return Remapped;
+	
+	return JointName;
+}
+
+
+
+
+
 function Lerp(PrevValue,NextValue,LerpTime)
 {
 	//	need to do each element if array (position, colour etc)
@@ -194,9 +335,7 @@ export class AnimationClip
 {
 	static GetTrackKey(ObjectName,Property)
 	{
-		if ( ObjectName.startsWith('mixamorig:') )
-			ObjectName = ObjectName.slice('mixamorig:'.length);
-
+		ObjectName = RemapJointToMixamoJoint(ObjectName);
 		return `${ObjectName}/${Property}`;
 	}
 	
@@ -341,15 +480,19 @@ export class Skeleton_t
 
 			Joint.JointIndex = NodeMeta.JointIndex;
 			
-			function GetParentJointIndex()
+			function GetParentJoint()
 			{
 				for ( let ThatNodeIndex of JointNodeIndexes )
 				{
 					const ThatNodeMeta = GetNodeMeta(ThatNodeIndex);
 					if ( ThatNodeMeta.children.includes(NodeIndex) )
-						return ThatNodeMeta.JointIndex;
+						return ThatNodeMeta;
 				}
 				return null;
+			}
+			function GetParentJointIndex()
+			{
+				return GetParentJoint()?.JointIndex ?? null;
 			}
 			function GetChildJointIndex(ChildNodeIndex)
 			{
@@ -358,6 +501,8 @@ export class Skeleton_t
 			}
 			Joint.Children = NodeMeta.children.map(GetChildJointIndex);
 			Joint.Parent = GetParentJointIndex();
+			const ParentJoint = GetParentJoint();
+			console.log(`${Joint.Name}'s parent is ${ParentJoint?.name}`);
 			return Joint;
 		}
 		this.#Joints.push( ...JointNodeIndexes.map( GetSkeletonJoint ) );
@@ -419,6 +564,23 @@ export class Skeleton_t
 				//Rotation = null;
 			}
 			
+			if ( Rotation )
+			{
+				/*
+				 https://github.com/KhronosGroup/UnityGLTF/issues/256
+				 Another way of thinking about it is that glTF's X-axis
+				 is (-1, 0, 0) relative to Unity's. To convert a quaternion
+				 from Unity space to glTF space you can negate the x-component
+				 so the axis of rotation is correct, and also negate the w-component
+				 to convert from clockwise to counter-clockwise rotation.
+				 Negating the X and W components is the same as negating the Y and Z components.
+				 It just happens that the code chooses to negate Y and Z.
+				 */
+				const [x,y,z,w] = Rotation;
+				Rotation = [-x,y,z,-w];
+				//Rotation[0] = -Rotation[0];
+			}
+
 			//	inherit if not animated
 			Translation = Translation || Joint.LocalPosition;
 			Rotation = Rotation || Joint.LocalRotation;
@@ -1005,6 +1167,11 @@ class Gltf_t
 		}
 	}
 	
+	GetSkeletons()
+	{
+		return this.skins || [];
+	}
+	
 	GetSkeleton(SkinIndex)
 	{
 		const Skin = this.skins[SkinIndex];
@@ -1045,14 +1212,51 @@ class Gltf_t
 		Skeleton.JointToWorldMatrixes = JointToWorldMatrixes;
 		//	gr: we want these flattened and padded for the renderer
 		
-		const MaxJoints = 70;
+		const MAX_JOINTS = 80;
 		const WorldToJointMatrixesFlat = WorldToJointMatrixDatas.Array;
 		const JointToWorldMatrixesFlat = new Float32Array( JointToWorldMatrixes.flat() );
-		Skeleton.WorldToJointMatrixes = new Float32Array(MaxJoints*16);
+		Skeleton.WorldToJointMatrixes = new Float32Array(MAX_JOINTS*16);
 		Skeleton.WorldToJointMatrixes.set( WorldToJointMatrixesFlat );
-		Skeleton.JointToWorldMatrixes = new Float32Array(MaxJoints*16);
+		Skeleton.JointToWorldMatrixes = new Float32Array(MAX_JOINTS*16);
 		Skeleton.JointToWorldMatrixes.set(JointToWorldMatrixesFlat);
 
+		return Skeleton;
+	}
+	
+	GetSkeletonFromScene()
+	{
+		//	if we have an animation attached to nodes in the scene, we can assume they might be a skeleton
+		const Animation0Name = this.GetAnimationNames()[0];
+		if ( !Animation0Name )
+			throw `No animated nodes in scene`;
+		//const Animation0 = this.GetAnimation(Animation0Name);
+		//throw `extract anim nodes`;
+		const SceneNodeIndexes = this.nodes.map( (n,i) => i );
+		//const JointNodes = Animation0.
+		
+		const WorldToJointMatrixes = SceneNodeIndexes.map( CreateIdentityMatrix);
+		const JointToWorldMatrixes = SceneNodeIndexes.map( CreateIdentityMatrix);
+
+		function GetJointNodeMeta(NodeIndex)
+		{
+			if ( NodeIndex < 0 || NodeIndex >= this.nodes.length )
+				throw `Node index ${NodeIndex}/${this.nodes.length} out of bounds`;
+		
+			const NodeMeta = Object.assign( {}, this.nodes[NodeIndex] );
+			const JointIndex = SceneNodeIndexes.indexOf(NodeIndex);
+			NodeMeta.WorldToJointTransform = WorldToJointMatrixes[JointIndex];
+			NodeMeta.JointToWorldTransform = JointToWorldMatrixes[JointIndex];
+			NodeMeta.NodeIndex = NodeIndex;
+			//	index in this skin
+			NodeMeta.JointIndex = JointIndex;
+			NodeMeta.children = NodeMeta.children || [];
+			return NodeMeta;
+		}
+		
+		const Skeleton = new Skeleton_t(`Scene Skeleton`, SceneNodeIndexes, GetJointNodeMeta.bind(this) );
+		Skeleton.WorldToJointMatrixes = WorldToJointMatrixes.flat();
+		Skeleton.JointToWorldMatrixes = JointToWorldMatrixes.flat();
+		
 		return Skeleton;
 	}
 	
