@@ -219,11 +219,33 @@ export class AnimationClip
 			//	sampler meta defines input accessor(time) and output accessor(data)
 			//	and how to interpolate it
 			const SamplerMeta = GetSamplerMeta(Channel.sampler);
-			const Node = GetNodeMeta(Channel.target.node);
+			let NodeIndex = Channel.target.node;
+			let PropertyName = Channel.target.path;
+			
+			//	path may be an extension
+			//	https://github.com/KhronosGroup/glTF/blob/main/extensions/2.0/Khronos/KHR_animation_pointer/README.md
+			if ( Channel.target.extensions?.KHR_animation_pointer )
+			{
+				const Pointer = Channel.target.extensions.KHR_animation_pointer;
+				if ( Channel.target.path != 'pointer' )
+					throw `KHR_animation_pointer extension in target path(${Channel.target.path}) expected to be "pointer"`;
+				//	/materials/0/pbrMetallicRoughness/baseColorFactor
+				//	/nodes/6/translation
+				const PathParts = Pointer.pointer.split('/');
+				const PreSlash = PathParts.shift();
+				const TargetType = PathParts.shift();
+				const TargetIndex = Number(PathParts.shift());
+				PropertyName = PathParts.join('.');
+				if ( TargetType == 'nodes' )
+					NodeIndex = TargetIndex;
+			}
+
+			//	todo: handle when not a node from KHR_Animation extension
+			const Node = GetNodeMeta(NodeIndex);
 
 			const Track = new AnimationTrack();
-			Track.Property = Channel.target.path;
-			Track.ObjectName = Node.name;
+			Track.Property = PropertyName;
+			Track.ObjectName = Node?.name;
 			Track.SamplerMeta = SamplerMeta;
 			Track.TimeData = GetArrayAndMeta( Track.SamplerMeta.input );
 			Track.ValueData = GetArrayAndMeta( Track.SamplerMeta.output );
@@ -309,7 +331,7 @@ export class Skeleton_t
 			const Joint = new SkeletonJoint(NodeMeta.name);
 			
 			const LocalTranslation = NodeMeta.translation.slice();
-			const LocalRotation = NodeMeta.rotation.slice();
+			const LocalRotation = (NodeMeta.rotation??[0,0,0,1]).slice();
 			Joint.JointToWorldTransform = NodeMeta.JointToWorldTransform;
 			Joint.LocalPosition = LocalTranslation;
 			Joint.LocalRotation = LocalRotation;
